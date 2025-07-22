@@ -21,17 +21,19 @@ class SimpleXGBoost:
         # Set objective function  
         if objective == 'reg:squarederror':  
             self.objective = SquaredLossObjective()  
-        elif objective == 'binary:logistic':  
-            self.objective = LogisticLossObjective()  
         else:  
-            raise ValueError(f"Unsupported objective: {objective}")  
+            self.objective = LogisticLossObjective()  
           
         self.tree_builder = SimpleTreeBuilder(max_depth=max_depth)  
       
-    def fit(self, X: pd.DataFrame, y: pd.Series):  
+    def fit(self, X: pd.DataFrame, y: pd.Series, objective: str):  
         """Train the XGBoost model"""  
-        # Initialize base score  
-        self.base_score = y.mean()  
+        if objective == 'reg:squarederror':
+            self.base_score = y.mean()  
+        else:
+            score = np.sum(y) / len(y)
+            self.base_score = np.log(score / (1-score))
+        
         predictions = np.full(len(y), self.base_score)  
           
         # Boosting iterations  

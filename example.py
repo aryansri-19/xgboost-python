@@ -7,16 +7,23 @@ def main():
     # Create sample data
     np.random.seed(42)
     data = pd.DataFrame({
-        'feature1': np.random.randn(1000),
-        'feature2': np.random.randn(1000),
-        'feature3': np.random.randn(1000),
+        'feature1': np.random.randn(10000),
+        'feature2': np.random.randn(10000),
+        'feature3': np.random.randn(10000),
+        'feature4': np.random.randn(10000),
+        'feature5': np.random.randn(10000),
+        'feature6': np.random.randn(10000),
+        'feature7': np.random.randn(10000),
+        'feature8': np.random.randn(10000),
+        'feature9': np.random.randn(10000),
+        'feature10': np.random.randn(10000),
     })
-    data['target'] = 2 * data['feature1'] + data['feature2'] + np.random.randn(1000) * 0.1
+    data['target'] = 4 * data['feature1'] + 2 * data['feature2'] + 1 * data['feature3'] + 0.5 * data['feature4'] + 0.25 * data['feature5'] + 0.125 * data['feature6'] + 0.0625 * data['feature7'] + 0.03125 * data['feature8'] + 0.015625 * data['feature9'] + 0.0078125 * data['feature10'] + np.random.randn(10000) * 0.1
 
-    train_data = data.iloc[:800]
-    test_data = data.iloc[800:]
+    train_data = data.iloc[:8000]
+    test_data = data.iloc[8000:]
     
-    feature_columns = ['feature1', 'feature2', 'feature3']
+    feature_columns = ['feature1', 'feature2', 'feature3', 'feature4', 'feature5', 'feature6', 'feature7', 'feature8', 'feature9', 'feature10']
 
     print("--- Training Our Custom XGBoost Model ---")
     start_time = time.time()
@@ -25,9 +32,10 @@ def main():
         'target',
         feature_columns=feature_columns,
         n_estimators=1000,
-        learning_rate=0.01,
+        learning_rate=0.3,
         max_depth=6,
-        verbose=100
+        verbose=100,
+        objective='reg:squarederror'
     )
     my_model_time = time.time() - start_time
     print(f"Custom model training time: {my_model_time:.2f}s\n")
@@ -49,9 +57,10 @@ def main():
         'target',
         feature_columns=feature_columns,
         n_estimators=1000,
-        learning_rate=0.01,
+        learning_rate=0.3,
         max_depth=6,
-        random_state=42
+        random_state=42,
+        tree_method='exact'
     )
     official_model_time = time.time() - start_time
     print(f"Official model training time: {official_model_time:.2f}s\n")

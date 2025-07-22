@@ -17,7 +17,7 @@ def train_xgboost_on_dataframe(df: pd.DataFrame, target_column: str,
     y = df.loc[:, target_column]
 
     model = SimpleXGBoost(**kwargs)
-    model.fit(X, y)
+    model.fit(X, y, objective=kwargs['objective'])
 
     return model
 
