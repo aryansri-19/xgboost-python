@@ -1,55 +1,54 @@
-import pandas as pd
 import numpy as np
 from typing import Tuple, Optional
-from tree import TreeNode
+from tree import TreeNode, SimpleTree
 
 class SimpleTreeBuilder:
-    """Basic tree construction algorithm"""
-
     def __init__(self, max_depth: int = 6, min_samples_split: int = 2, reg_lambda: float = 1.0):
         self.max_depth = max_depth
         self.min_samples_split = min_samples_split
         self.reg_lambda = reg_lambda
 
-    def find_best_split(self, data: pd.DataFrame, grads: np.ndarray, hesses: np.ndarray) -> Tuple[Optional[int], Optional[float], float]:
-        """Find best feature and threshold for splitting"""
+    def find_best_split_exact(self, data: np.ndarray, indices: np.ndarray, grads: np.ndarray, hesses: np.ndarray) -> Tuple[Optional[int], Optional[float], float]:
         best_gain = -float('inf')
         best_feature: Optional[int] = None
         best_threshold: Optional[float] = None
-        
-        parent_sum_grad = np.sum(grads)
-        parent_sum_hess = np.sum(hesses)
+
+        node_grads = grads[indices]
+        node_hesses = hesses[indices]
+
+        parent_sum_grad = np.sum(node_grads)
+        parent_sum_hess = np.sum(node_hesses)
         parent_score = (parent_sum_grad ** 2) / (parent_sum_hess + self.reg_lambda)
 
-        for feature_idx, feature_name in enumerate(data.columns):
-            feature_values = data[feature_name].to_numpy()
-            
+        n_features = data.shape[1]
+        for feature_idx in range(n_features):
+            feature_values = data[indices, feature_idx]
+
             sorted_indices = np.argsort(feature_values)
-            sorted_grads = grads[sorted_indices]
-            sorted_hesses = hesses[sorted_indices]
+            sorted_grads = node_grads[sorted_indices]
+            sorted_hesses = node_hesses[sorted_indices]
             sorted_features = feature_values[sorted_indices]
 
             left_sum_grad = 0.0
             left_sum_hess = 0.0
-            
+
             for i in range(len(sorted_grads) - 1):
                 left_sum_grad += sorted_grads[i]
                 left_sum_hess += sorted_hesses[i]
 
                 current_val = sorted_features[i]
                 next_val = sorted_features[i+1]
-                if pd.isna(current_val) or current_val == next_val:
+                if current_val == next_val:
                     continue
 
-                if (i + 1) < self.min_samples_split or (len(sorted_grads) - (i + 1)) < self.min_samples_split:
-                    continue
-                
                 right_sum_grad = parent_sum_grad - left_sum_grad
                 right_sum_hess = parent_sum_hess - left_sum_hess
 
+                if left_sum_hess < 1e-3 or right_sum_hess < 1e-3:
+                    continue
+
                 left_score = (left_sum_grad ** 2) / (left_sum_hess + self.reg_lambda)
                 right_score = (right_sum_grad ** 2) / (right_sum_hess + self.reg_lambda)
-                
                 gain = left_score + right_score - parent_score
 
                 if gain > best_gain:
@@ -59,32 +58,40 @@ class SimpleTreeBuilder:
 
         return best_feature, best_threshold, best_gain
 
-    def calculate_leaf_value(self, grads: np.ndarray, hesses: np.ndarray) -> float:
-        """Calculate optimal leaf value"""
-        if len(grads) == 0:
+    def calculate_leaf_value(self, indices: np.ndarray, grads: np.ndarray, hesses: np.ndarray) -> float:
+        if len(indices) == 0:
             return 0.0
-        sum_grad = np.sum(grads)
-        sum_hess = np.sum(hesses)
-        return -sum_grad / (sum_hess + self.reg_lambda)
 
-    def build_tree(self, data: pd.DataFrame, grads: np.ndarray, hesses: np.ndarray, depth: int = 0) -> TreeNode:
-        """Recursively build decision tree"""
-        if depth >= self.max_depth or len(data) < self.min_samples_split:
-            leaf_value = self.calculate_leaf_value(grads, hesses)
+        leaf_grads = grads[indices]
+        leaf_hesses = hesses[indices]
+
+        return -np.sum(leaf_grads) / (np.sum(leaf_hesses) + self.reg_lambda)
+
+    def build_tree(self, data: np.ndarray, grads: np.ndarray, hesses: np.ndarray) -> SimpleTree:
+        tree = SimpleTree()
+        initial_indices = np.arange(data.shape[0])
+        tree.root = self._build_recursive(data, initial_indices, grads, hesses, depth=0)
+        return tree
+
+    def _build_recursive(self, data: np.ndarray, indices: np.ndarray, grads: np.ndarray, hesses: np.ndarray, depth: int) -> TreeNode:
+        if depth >= self.max_depth or len(indices) < self.min_samples_split:
+            leaf_value = self.calculate_leaf_value(indices, grads, hesses)
             return TreeNode(is_leaf=True, leaf_value=leaf_value)
 
-        feature_idx, threshold, gain = self.find_best_split(data, grads, hesses)
+        feature_idx, threshold, gain = self.find_best_split_exact(data, indices, grads, hesses)
 
         if feature_idx is None or gain <= 0:
-            leaf_value = self.calculate_leaf_value(grads, hesses)
+            leaf_value = self.calculate_leaf_value(indices, grads, hesses)
             return TreeNode(is_leaf=True, leaf_value=leaf_value)
 
-        feature_name = data.columns[feature_idx]
-        left_mask = data[feature_name] < threshold
-        right_mask = ~left_mask
+        feature_values = data[indices, feature_idx]
+        left_mask = feature_values < threshold
 
-        left_child = self.build_tree(data.loc[left_mask], grads[left_mask.values], hesses[left_mask.values], depth + 1)
-        right_child = self.build_tree(data.loc[right_mask], grads[right_mask.values], hesses[right_mask.values], depth + 1)
+        left_indices = indices[left_mask]
+        right_indices = indices[~left_mask]
+
+        left_child = self._build_recursive(data, left_indices, grads, hesses, depth + 1)
+        right_child = self._build_recursive(data, right_indices, grads, hesses, depth + 1)
 
         return TreeNode(
             feature_id=feature_idx,

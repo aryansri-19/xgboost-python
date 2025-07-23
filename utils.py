@@ -1,49 +1,18 @@
 import numpy as np
 import pandas as pd
-from typing import List, Optional, Union
+from typing import Union
+from sklearn.metrics import accuracy_score
 import xgboost as xgb
 from my_xgboost import SimpleXGBoost
+import time
 EvaluableModel = Union[SimpleXGBoost, xgb.XGBRegressor]
 
-
-def train_xgboost_on_dataframe(df: pd.DataFrame, target_column: str,
-                               feature_columns: Optional[List[str]] = None, **kwargs) -> SimpleXGBoost:
-    """Train our custom XGBoost on any pandas DataFrame"""
-
-    if feature_columns is None:
-        feature_columns = [col for col in df.columns if col != target_column]
-
-    X = df.loc[:, feature_columns]
-    y = df.loc[:, target_column]
-
-    model = SimpleXGBoost(**kwargs)
-    model.fit(X, y, objective=kwargs['objective'])
-
-    return model
-
-def train_official_xgboost_on_dataframe(df: pd.DataFrame, target_column: str,
-                                         feature_columns: Optional[List[str]] = None, **kwargs) -> xgb.XGBRegressor:
-    """Train official XGBoost on any pandas DataFrame"""
-
-    if feature_columns is None:
-        feature_columns = [col for col in df.columns if col != target_column]
-
-    X = df.loc[:, feature_columns]
-    y = df.loc[:, target_column]
-
-    model = xgb.XGBRegressor(**kwargs)
-    model.fit(X, y)
-
-    return model
-
-
-def evaluate_model(model: EvaluableModel, X: pd.DataFrame, y: pd.Series) -> dict:
+def evaluate_regression_model(model: EvaluableModel, X: pd.DataFrame, y: pd.Series) -> dict:
     """Evaluate model performance"""
     predictions = model.predict(X)
     mse = np.mean((y - predictions) ** 2)
     mae = np.mean(np.abs(y - predictions))
 
-    # Calculate R-squared
     y_mean = np.mean(y)
     ss_total = np.sum((y - y_mean) ** 2)
     ss_residual = np.sum((y - predictions) ** 2)
@@ -54,4 +23,16 @@ def evaluate_model(model: EvaluableModel, X: pd.DataFrame, y: pd.Series) -> dict
         'mae': mae,
         'rmse': np.sqrt(mse),
         'r2': r2
+    }
+
+def evaluate_classification_model(model: EvaluableModel, X: pd.DataFrame, y: pd.Series) -> dict:
+    """Evaluate model performance"""
+    start_time = time.time()
+    predictions = model.predict(X)
+    end_time = time.time()
+    duration = end_time - start_time
+    print(f"Predicting Time Duration: {duration:.2f} seconds")
+    binary_predictions = (predictions > 0.5).astype(int)
+    return {
+        'accuracy': accuracy_score(y, binary_predictions)
     }

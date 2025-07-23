@@ -1,46 +1,45 @@
-import pandas as pd  
-import numpy as np  
-from typing import Optional  
-from dataclasses import dataclass  
-  
-@dataclass  
-class TreeNode:  
-    """Simple tree node structure"""  
-    feature_id: Optional[int] = None  
-    threshold: Optional[float] = None  
-    left_child: Optional['TreeNode'] = None  
-    right_child: Optional['TreeNode'] = None  
-    leaf_value: Optional[float] = None  
-    is_leaf: bool = False  
-      
-class SimpleTree:  
-    """Basic decision tree for gradient boosting"""  
-      
-    def __init__(self):  
-        self.root: Optional[TreeNode] = None  
-          
-    def predict_single(self, row: pd.Series) -> float:  
-        """Predict single row through tree traversal"""  
-        if self.root is None:  
-            return 0.0  
-              
-        node: Optional[TreeNode] = self.root  
-        while node and not node.is_leaf:  
-            if node.feature_id is None or node.threshold is None:
-                #can raise an error instead
-                return 0.0
+import numpy as np
+from typing import Optional
+from dataclasses import dataclass
 
-            feature_name = row.index[node.feature_id]  
-            if pd.isna(row[feature_name]) or row[feature_name] < node.threshold:  
-                node = node.left_child  
-            else:  
-                node = node.right_child  
+@dataclass
+class TreeNode:
+    """Simple tree node structure"""
+    feature_id: Optional[int] = None
+    threshold: Optional[float] = None
+    left_child: Optional['TreeNode'] = None
+    right_child: Optional['TreeNode'] = None
+    leaf_value: Optional[float] = None
+    is_leaf: bool = False
 
-        if node is None or node.leaf_value is None:
-            return 0.0
-            
-        return node.leaf_value  
-      
-    def predict(self, data: pd.DataFrame) -> np.ndarray:  
-        """Predict multiple rows"""  
-        return np.array([self.predict_single(row) for _, row in data.iterrows()])
+class SimpleTree:
+    def __init__(self):
+        self.root: Optional[TreeNode] = None
+
+    def predict(self, data: np.ndarray) -> np.ndarray:
+        n_samples = data.shape[0]
+        predictions = np.zeros(n_samples)
+        self._traverse_tree(self.root, data, np.arange(n_samples), predictions)
+
+        return predictions
+
+    def _traverse_tree(self, node: Optional[TreeNode], data: np.ndarray, indices: np.ndarray, predictions: np.ndarray):
+        """Helper function to recursively traverse the tree with data indices."""
+        if node is None or len(indices) == 0:
+            return
+
+        if node.is_leaf:
+            predictions[indices] = node.leaf_value
+            return
+
+        if node.feature_id is None or node.threshold is None:
+            return
+        feature_data = data[indices, node.feature_id]
+
+        left_mask = feature_data < node.threshold
+
+        left_indices = indices[left_mask]
+        right_indices = indices[~left_mask]
+
+        self._traverse_tree(node.left_child, data, left_indices, predictions)
+        self._traverse_tree(node.right_child, data, right_indices, predictions)

@@ -1,78 +1,77 @@
 import pandas as pd
 import numpy as np
-from utils import train_xgboost_on_dataframe, train_official_xgboost_on_dataframe, evaluate_model
+from my_xgboost import SimpleXGBoost
+from utils import evaluate_classification_model
+import xgboost as xgb
 import time
+from visualizer import plot_tree
 
 def main():
-    # Create sample data
     np.random.seed(42)
     data = pd.DataFrame({
-        'feature1': np.random.randn(10000),
-        'feature2': np.random.randn(10000),
-        'feature3': np.random.randn(10000),
-        'feature4': np.random.randn(10000),
-        'feature5': np.random.randn(10000),
-        'feature6': np.random.randn(10000),
-        'feature7': np.random.randn(10000),
-        'feature8': np.random.randn(10000),
-        'feature9': np.random.randn(10000),
-        'feature10': np.random.randn(10000),
+        'feature1': np.random.randn(1000),
+        'feature2': np.random.randn(1000),
+        'feature3': np.random.randn(1000),
     })
-    data['target'] = 4 * data['feature1'] + 2 * data['feature2'] + 1 * data['feature3'] + 0.5 * data['feature4'] + 0.25 * data['feature5'] + 0.125 * data['feature6'] + 0.0625 * data['feature7'] + 0.03125 * data['feature8'] + 0.015625 * data['feature9'] + 0.0078125 * data['feature10'] + np.random.randn(10000) * 0.1
+    data['target'] = np.random.choice([0, 1], size=1000)
 
-    train_data = data.iloc[:8000]
-    test_data = data.iloc[8000:]
-    
-    feature_columns = ['feature1', 'feature2', 'feature3', 'feature4', 'feature5', 'feature6', 'feature7', 'feature8', 'feature9', 'feature10']
+    train_data = data.iloc[:800]
+    test_data = data.iloc[800:]
+
+    feature_columns = ['feature1', 'feature2', 'feature3']
 
     print("--- Training Our Custom XGBoost Model ---")
     start_time = time.time()
-    my_model = train_xgboost_on_dataframe(
-        train_data,
-        'target',
-        feature_columns=feature_columns,
+    my_model = SimpleXGBoost(
         n_estimators=1000,
-        learning_rate=0.3,
+        learning_rate=0.01,
         max_depth=6,
         verbose=100,
-        objective='reg:squarederror'
+        objective='binary:logistic'
     )
+
+    my_model.fit(train_data[feature_columns], train_data['target'], objective='binary:logistic')
     my_model_time = time.time() - start_time
     print(f"Custom model training time: {my_model_time:.2f}s\n")
 
-    my_train_metrics = evaluate_model(my_model, train_data.loc[:, feature_columns], train_data.loc[:, 'target'])
-    my_test_metrics = evaluate_model(my_model, test_data.loc[:, feature_columns], test_data.loc[:, 'target'])
+    my_train_metrics = evaluate_classification_model   (my_model, train_data.loc[:, feature_columns], train_data.loc[:, 'target'])
+    my_test_metrics = evaluate_classification_model(my_model, test_data.loc[:, feature_columns], test_data.loc[:, 'target'])
 
     print("Custom Model Performance:")
-    print(f"  Train RMSE: {my_train_metrics['rmse']:.4f}")
-    print(f"  Test RMSE:  {my_test_metrics['rmse']:.4f}")
-    print(f"  Train R-squared: {my_train_metrics['r2']:.4f}")
-    print(f"  Test R-squared:  {my_test_metrics['r2']:.4f}\n")
+    print(f"  Train Accuracy: {my_train_metrics['accuracy']:.4f}")
+    print(f"  Test Accuracy:  {my_test_metrics['accuracy']:.4f}\n")
 
+    if my_model.trees:
+        print("Visualizing the first decision tree...")
+        first_tree = my_model.trees[0]
+        # Plot it
+        plot_tree(
+            first_tree,
+            feature_names=feature_columns,
+            filename='my_first_xgboost_tree'
+        )
+    else:
+        print("No trees were trained, skipping visualization.")
 
     print("--- Training Official XGBoost Model ---")
     start_time = time.time()
-    official_model = train_official_xgboost_on_dataframe(
-        train_data,
-        'target',
-        feature_columns=feature_columns,
+    official_model = xgb.XGBRegressor(
         n_estimators=1000,
         learning_rate=0.3,
-        max_depth=6,
+        max_depth=3,
         random_state=42,
-        tree_method='exact'
+        objective='binary:logistic'
     )
+    official_model.fit(train_data[feature_columns], train_data['target'])
     official_model_time = time.time() - start_time
     print(f"Official model training time: {official_model_time:.2f}s\n")
 
-    official_train_metrics = evaluate_model(official_model, test_data.loc[:, feature_columns], test_data.loc[:, 'target'])
-    official_test_metrics = evaluate_model(official_model, test_data.loc[:, feature_columns], test_data.loc[:, 'target'])
+    official_train_metrics = evaluate_classification_model(official_model, test_data.loc[:, feature_columns], test_data.loc[:, 'target'])
+    official_test_metrics = evaluate_classification_model(official_model, test_data.loc[:, feature_columns], test_data.loc[:, 'target'])
 
     print("Official Model Performance:")
-    print(f"  Train RMSE: {official_train_metrics['rmse']:.4f}")
-    print(f"  Test RMSE:  {official_test_metrics['rmse']:.4f}")
-    print(f"  Train R-squared: {official_train_metrics['r2']:.4f}")
-    print(f"  Test R-squared:  {official_test_metrics['r2']:.4f}\n")
+    print(f"  Train Accuracy: {official_train_metrics['accuracy']:.4f}")
+    print(f"  Test Accuracy:  {official_test_metrics['accuracy']:.4f}\n")
 
 if __name__ == "__main__":
     main()
