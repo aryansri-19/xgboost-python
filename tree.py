@@ -11,6 +11,7 @@ class TreeNode:
     right_child: Optional['TreeNode'] = None
     leaf_value: Optional[float] = None
     is_leaf: bool = False
+    default_left: bool = True
 
 class SimpleTree:
     def __init__(self):
@@ -36,7 +37,11 @@ class SimpleTree:
             return
         feature_data = data[indices, node.feature_id]
 
+        nan_mask = np.isnan(feature_data)
         left_mask = feature_data < node.threshold
+
+        if node.default_left:
+            left_mask = left_mask | nan_mask
 
         left_indices = indices[left_mask]
         right_indices = indices[~left_mask]

@@ -1,102 +1,114 @@
 import numpy as np
-from typing import Tuple, Optional
+from typing import Tuple, Optional, List
 from tree import TreeNode, SimpleTree
 
 class SimpleTreeBuilder:
-    def __init__(self, max_depth: int = 6, min_samples_split: int = 2, reg_lambda: float = 1.0):
+    def __init__(self, max_depth: int = 6, min_samples_split: int = 2, reg_lambda: float = 1.0, n_bins: int = 256):
         self.max_depth = max_depth
         self.min_samples_split = min_samples_split
         self.reg_lambda = reg_lambda
+        self.n_bins = n_bins
+        self.thresholds: List[np.ndarray] = []
 
-    def find_best_split_exact(self, data: np.ndarray, indices: np.ndarray, grads: np.ndarray, hesses: np.ndarray) -> Tuple[Optional[int], Optional[float], float]:
-        best_gain = -float('inf')
-        best_feature: Optional[int] = None
-        best_threshold: Optional[float] = None
+    def set_thresholds(self, thresholds: List[np.ndarray]):
+        self.thresholds = thresholds
 
+    def find_best_split_hist(self, X_binned: np.ndarray, indices: np.ndarray, grads: np.ndarray, hesses: np.ndarray) -> Tuple[Optional[int], Optional[float], float, bool]:
         node_grads = grads[indices]
         node_hesses = hesses[indices]
-
+        
         parent_sum_grad = np.sum(node_grads)
         parent_sum_hess = np.sum(node_hesses)
         parent_score = (parent_sum_grad ** 2) / (parent_sum_hess + self.reg_lambda)
 
-        n_features = data.shape[1]
+        best_gain = -float('inf')
+        best_feature = None
+        best_threshold = None
+        
+        n_features = X_binned.shape[1]
+
         for feature_idx in range(n_features):
-            feature_values = data[indices, feature_idx]
+            bin_ids = X_binned[indices, feature_idx]
+            
+            current_n_bins = len(self.thresholds[feature_idx]) + 1
+            if current_n_bins <= 1:
+                continue
 
-            sorted_indices = np.argsort(feature_values)
-            sorted_grads = node_grads[sorted_indices]
-            sorted_hesses = node_hesses[sorted_indices]
-            sorted_features = feature_values[sorted_indices]
+            g_hist = np.bincount(bin_ids, weights=node_grads, minlength=current_n_bins)
+            h_hist = np.bincount(bin_ids, weights=node_hesses, minlength=current_n_bins)
 
-            left_sum_grad = 0.0
-            left_sum_hess = 0.0
+            gl_cumulative = np.cumsum(g_hist)
+            hl_cumulative = np.cumsum(h_hist)
 
-            for i in range(len(sorted_grads) - 1):
-                left_sum_grad += sorted_grads[i]
-                left_sum_hess += sorted_hesses[i]
+            gl = gl_cumulative[:-1]
+            hl = hl_cumulative[:-1]
+            
+            gr = parent_sum_grad - gl
+            hr = parent_sum_hess - hl
 
-                current_val = sorted_features[i]
-                next_val = sorted_features[i+1]
-                if current_val == next_val:
-                    continue
+            valid_mask = (hl > 1e-3) & (hr > 1e-3)
+            if not np.any(valid_mask):
+                continue
+            left_scores = (gl ** 2) / (hl + self.reg_lambda)
+            right_scores = (gr ** 2) / (hr + self.reg_lambda)
+            
+            gains = left_scores + right_scores - parent_score
+            gains[~valid_mask] = -float('inf')
 
-                right_sum_grad = parent_sum_grad - left_sum_grad
-                right_sum_hess = parent_sum_hess - left_sum_hess
+            local_best_bin_idx = np.argmax(gains)
+            local_max_gain = gains[local_best_bin_idx]
 
-                if left_sum_hess < 1e-3 or right_sum_hess < 1e-3:
-                    continue
+            if local_max_gain > best_gain:
+                best_gain = local_max_gain
+                best_feature = feature_idx
+                if local_best_bin_idx < len(self.thresholds[feature_idx]):
+                     best_threshold = self.thresholds[feature_idx][local_best_bin_idx]
+                else:
+                    best_threshold = self.thresholds[feature_idx][-1]
 
-                left_score = (left_sum_grad ** 2) / (left_sum_hess + self.reg_lambda)
-                right_score = (right_sum_grad ** 2) / (right_sum_hess + self.reg_lambda)
-                gain = left_score + right_score - parent_score
-
-                if gain > best_gain:
-                    best_gain = gain
-                    best_feature = feature_idx
-                    best_threshold = (current_val + next_val) / 2
-
-        return best_feature, best_threshold, best_gain
+        return best_feature, best_threshold, best_gain, False
 
     def calculate_leaf_value(self, indices: np.ndarray, grads: np.ndarray, hesses: np.ndarray) -> float:
         if len(indices) == 0:
             return 0.0
+        return -np.sum(grads[indices]) / (np.sum(hesses[indices]) + self.reg_lambda)
 
-        leaf_grads = grads[indices]
-        leaf_hesses = hesses[indices]
-
-        return -np.sum(leaf_grads) / (np.sum(leaf_hesses) + self.reg_lambda)
-
-    def build_tree(self, data: np.ndarray, grads: np.ndarray, hesses: np.ndarray) -> SimpleTree:
+    def build_tree(self, X_binned: np.ndarray, grads: np.ndarray, hesses: np.ndarray) -> SimpleTree:
         tree = SimpleTree()
-        initial_indices = np.arange(data.shape[0])
-        tree.root = self._build_recursive(data, initial_indices, grads, hesses, depth=0)
+        initial_indices = np.arange(X_binned.shape[0])
+        tree.root = self._build_recursive(X_binned, initial_indices, grads, hesses, depth=0)
         return tree
 
-    def _build_recursive(self, data: np.ndarray, indices: np.ndarray, grads: np.ndarray, hesses: np.ndarray, depth: int) -> TreeNode:
+    def _build_recursive(self, X_binned: np.ndarray, indices: np.ndarray, grads: np.ndarray, hesses: np.ndarray, depth: int) -> TreeNode:
         if depth >= self.max_depth or len(indices) < self.min_samples_split:
             leaf_value = self.calculate_leaf_value(indices, grads, hesses)
             return TreeNode(is_leaf=True, leaf_value=leaf_value)
 
-        feature_idx, threshold, gain = self.find_best_split_exact(data, indices, grads, hesses)
+        feature_idx, threshold, gain, default_left = self.find_best_split_hist(X_binned, indices, grads, hesses)
 
         if feature_idx is None or gain <= 0:
             leaf_value = self.calculate_leaf_value(indices, grads, hesses)
             return TreeNode(is_leaf=True, leaf_value=leaf_value)
 
-        feature_values = data[indices, feature_idx]
-        left_mask = feature_values < threshold
-
+        cut_float = threshold
+        
+        feat_thresholds = self.thresholds[feature_idx]
+        cut_bin_idx = np.searchsorted(feat_thresholds, cut_float)
+        
+        bin_values = X_binned[indices, feature_idx]
+        left_mask = bin_values <= cut_bin_idx
+        
         left_indices = indices[left_mask]
         right_indices = indices[~left_mask]
 
-        left_child = self._build_recursive(data, left_indices, grads, hesses, depth + 1)
-        right_child = self._build_recursive(data, right_indices, grads, hesses, depth + 1)
+        left_child = self._build_recursive(X_binned, left_indices, grads, hesses, depth + 1)
+        right_child = self._build_recursive(X_binned, right_indices, grads, hesses, depth + 1)
 
         return TreeNode(
             feature_id=feature_idx,
             threshold=threshold,
             left_child=left_child,
             right_child=right_child,
-            is_leaf=False
+            is_leaf=False,
+            default_left=default_left
         )
